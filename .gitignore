@@ -1,0 +1,17 @@
+# build outputs
+*.o
+*.out
+bin/
+build/
+
+# python
+__pycache__/
+.venv/
+
+# profiler: ncu reports are committed on purpose (they are the evidence);
+# nsys traces are large and regenerable
+*.nsys-rep
+*.sqlite
+*.qdstrm
+
+.DS_Store
