@@ -36,6 +36,15 @@ Two platform notes that affect reproduction:
 modal run tools/env_check.py
 ```
 
+`tools/run.py` compiles and runs any single `.cu` file on the A10:
+
+```bash
+modal run tools/run.py --file path/to/kernel.cu                 # compile + run
+modal run tools/run.py --file path/to/kernel.cu --mode ncu      # Nsight Compute, saves profiles/*.ncu-rep
+modal run tools/run.py --file path/to/kernel.cu --mode nsys     # Nsight Systems timeline
+modal run tools/run.py --file path/to/kernel.cu --mode sanitize # compute-sanitizer memcheck
+```
+
 ## What "done" means for a kernel
 
 - a written prediction: bytes moved, FLOPs, arithmetic intensity, expected bottleneck, expected time
