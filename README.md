@@ -57,6 +57,6 @@ modal run tools/run.py --file path/to/kernel.cu --mode sanitize # compute-saniti
 
 ## Kernels
 
-| Kernel | CUDA | Triton | Limited by |
-| --- | --- | --- | --- |
-| *(first one coming)* | | | |
+| Kernel | CUDA | Triton | Result | Limited by |
+| --- | --- | --- | --- | --- |
+| [Vector add](01_vector_add/) | ✅ | | 1.61 ms, ~500 GB/s, 83% of spec (92% DRAM busy) | DRAM bandwidth |

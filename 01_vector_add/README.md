@@ -1,73 +1,142 @@
-# Vector add: C = A + B (FP32) == (32-bit floating point)
+# Vector add: C = A + B
 
-## Prediction (written before the first run)
+FP32 (32-bit floating point), N = 2²⁶ = 67,108,864 elements, NVIDIA A10.
 
-N = 2^26 = 67,108,864 elements
+**Result:** 1.61 ms, **~500 GB/s (gigabytes per second) = 83% of the 600 GB/s spec**,
+and 92% of what the memory can actually sustain according to Nsight Compute.
+**Limited by DRAM (dynamic random-access memory) bandwidth.** The math units sit
+~87% idle. Getting the data to and from the GPU (graphics processing unit) over
+PCIe (Peripheral Component Interconnect Express) costs **20–60× the kernel itself**.
 
-- Bytes moved per element: ___  (which reads? which writes?)
-    Which of A[i], B[i] and C[i] are read from memory? for this its 4*2 elements(a,b) = 8
-    Which are written back? only c need to be written back so 4 (c)
-    so for a 4, b 4 while reading and while writing c 4.
-- Total bytes moved: ___ MB
-    so total would be 12 bytes * 2^26 ≈ 805 MB.
-- FLOPs (floating-point operation) per element: ___   → total FLOPs: ___
-    C = A + B (one operation thats +)
-    1 * 2^26
-- Arithmetic intensity: ___ FLOPs (floating-point operations) per element  / bytes per element
-    1 / 12
-- A10 memory bandwidth (spec): 600 GB/s
-- Expected bottleneck: memory or compute? ___ because ___ 
-    I think memory is the bottleneck, math units mostly sit idle waiting. This is based on the calculations below.
-    - Expected bottleneck: memory.
-    The math takes 0.002 ms but moving the bytes takes 1.34 ms (~600× longer), so the math units mostly sit idle waiting for data.
-- Predicted kernel time: ___ ms
-    A kernel has two costs, moving the bytes and doing the math, and the slower of the two sets the time. So you work out both lower bounds and take the larger.
+## Setup
 
-    1. Memory time: how long just moving the bytes takes
-        memory time = total bytes ÷ memory bandwidth
-                    = 12 bytes * 2^26 / 600 GB/s = 805 mb / 600 GB/s = 805,306,368 / 600 000 000 000 
-                    = 0.001342 seconds = 1.342 ms
+| | |
+| --- | --- |
+| GPU | NVIDIA A10 (Ampere, sm_86, 72 SMs (streaming multiprocessors), 24 GB, 600 GB/s spec), on [Modal](https://modal.com) |
+| Launch | 262,144 blocks × 256 threads, grid-stride loop |
+| Build | `nvcc -O3 -arch=sm_86 -lineinfo` (CUDA 12.8) |
+| Timing | 3 warm-up launches, then 20 launches timed with CUDA events; median reported |
+| Input | random floats in [0, 1) |
 
-    2. Compute time: how long just doing the math takes
-        compute time = total FLOPs (floating-point operations) ÷ compute throughput
-                     = 1 * 2^26 / 31.2 TFLOP/s = 67,108,864 / 31,200,000,000,000 FLOPs per second
-                     = 0.00000215 seconds
-                     = 0.00215 ms
+```bash
+modal run tools/run.py --file 01_vector_add/vector_add.cu                 # pageable host memory
+modal run tools/run.py --file 01_vector_add/vector_add.cu --args pinned   # pinned host memory
+modal run tools/run.py --file 01_vector_add/vector_add.cu --mode ncu      # Nsight Compute
+modal run tools/run.py --file 01_vector_add/vector_add.cu --mode sanitize # compute-sanitizer
+```
 
-    Predicted ideal time = the larger of the two. = max (1.342 ms, 0.00215 ms) = 1.342 ms.
+## Prediction vs measurement
 
-- Predicted fraction of peak I'll actually reach: ___ %  (hint: you measured this once already)
-    My first guess: 40% to 60%, reasoning only from the ideal time.
+The prediction was written and committed before any timing code existed
+(commit [`ce6389f`](https://github.com/dileep1228/cuda-kernels/commit/ce6389f)).
 
-    Note: this is not a blind prediction. Before writing it, I had already seen two
-    measurements of the same maths on this same A10:
-      - 89% at N = 2^20 (1M elements): my prefetch run of the "Even Easier
-        Introduction to CUDA" kernel, 0.0235 ms → 535 GB/s.
-      - 84% at N = 2^26: the environment check's test kernel, same size as this
-        one, 1.603 ms → 502 GB/s.
-    So the honest expectation is ~84%, i.e. a kernel time of about 1.342 / 0.84 ≈ 1.6 ms.
+| | Predicted | Measured |
+| --- | --- | --- |
+| Bytes moved per element | 12 (read A, read B, write C) | — |
+| Total bytes moved | 805 MB (megabytes) | — |
+| FLOPs (floating-point operations) per element | 1 | — |
+| Arithmetic intensity | 1/12 ≈ 0.083 FLOP/byte (A10 needs ~52 to be compute-bound) | — |
+| Bottleneck | memory | memory: DRAM 92% busy, SMs 12.6% (ncu) |
+| Ideal kernel time at 600 GB/s | 1.342 ms | — |
+| Kernel time | ~1.6 ms (at ~84% of peak) | **1.605–1.616 ms** median |
+| Fraction of 600 GB/s | ~84% | **83.1–83.6%** |
+| Copies, pageable `malloc` memory | ~15 GB/s, ~54 ms, ~34× the kernel | **8.6–13.1 GB/s** H2D, **4.6–10.0 GB/s** D2H, ~57–62× |
+| Copies, pinned memory (not predicted) | (25 GB/s from PCIe 4.0 × 16 arithmetic) | **25.2 GB/s** H2D, **26.3 GB/s** D2H, ~20× |
 
-    Why a 64× bigger array could differ from the 1M run:
-      - up: the kernel runs 64× longer, so start-up and wind-down (when not every
-        SM (streaming multiprocessor) is busy) are a smaller share of the time.
-      - down: each array is 268 MB, far bigger than the 6 MB L2 cache (level-2 cache),
-        so every byte really comes from VRAM (video random-access memory); at 1M
-        elements (4 MB per array) some may have been served from cache.
-      - DRAM (dynamic random-access memory) never delivers 100% of its spec: it
-        spends time refreshing and switching between reads and writes, and ECC
-        (error-correcting code) is enabled on this A10.
-        
-- Predicted time for the H2D + D2H copies over PCIe (~25 GB/s): ___ ms
-    (H2D = host to device, D2H = device to host, PCIe = Peripheral Component Interconnect Express)
-    H2D: A + B = 2 × 268 MB = 537 MB
-    D2H: C     = 1 × 268 MB = 268 MB
-    total      = 805 MB
-    805 MB ÷ 25 GB/s = 0.0322 s = 32.2 ms  →  ~20× the kernel time (~1.6 ms)
-    Will the copies actually reach 25 GB/s? Not sure. Guess: lower, ~15 GB/s → 805 MB ÷ 15 GB/s ≈ 54 ms
-    (~34× the kernel time), because 25 GB/s is itself a best case:
-      - The A10 link is PCIe 4.0 × 16 lanes (nvidia-smi: gen 4, width 16).
-        One lane = 16 GT/s (gigatransfers per second) × 128/130 encoding ÷ 8 ≈ 1.97 GB/s per direction;
-        × 16 lanes ≈ 31.5 GB/s theoretical. Protocol overhead (packet headers, flow control)
-        brings the best real-world figure to ~25 GB/s.
-      - Every best case so far has come in lower when measured (VRAM: 600 GB/s spec, ~84–89% reached),
-        so I expect the copies to fall short of 25 GB/s too.
+H2D = host to device, D2H = device to host.
+
+**How honest the prediction was.** The kernel-time prediction was *not* blind: before
+writing it I had already seen two measurements of the same maths on the A10
+(89% at N = 2²⁰, 84% at N = 2²⁶). My first blind guess was 40–60% of peak, which
+would have meant 2.2–3.4 ms, off by 1.4–2×. The copy-time prediction was blind.
+
+## Results
+
+### Kernel
+
+Median of 20 runs, across repeated runs on Modal:
+
+| | Fastest | Median | Slowest | Bandwidth | % of 600 GB/s |
+| --- | --- | --- | --- | --- | --- |
+| Typical run | 1.599 ms | 1.605 ms | 1.617 ms | 501.9 GB/s | 83.6% |
+
+The spread within a run is about 1%, so the median is stable. Seven of eight runs
+landed at 1.60–1.62 ms. One run measured 1.430 ms (563 GB/s, 94%) with no code
+change, most likely a different physical A10: Modal can assign a different card
+each run, which is why `tools/run.py` now prints the GPU's UUID (universally unique
+identifier) with every result.
+
+### Nsight Compute (Speed of Light section)
+
+| Metric | Value |
+| --- | --- |
+| DRAM throughput | 91.8–93.0% |
+| Compute (SM) throughput | 12.6% |
+| L2 cache throughput | ~20% |
+| L1/TEX cache throughput | ~10% |
+| Duration | 1.60–1.62 ms (matches the CUDA-event timing) |
+| SM active cycles / elapsed cycles | ~99.7% |
+
+502 GB/s measured ÷ 0.92 busy ≈ 545 GB/s: roughly the ceiling the DRAM can
+realistically sustain. So about half of the gap to the 600 GB/s spec is unreachable
+by any code (refresh, read/write turnaround, ECC (error-correcting code) is on), and
+only ~8% is left on the table. Compute throughput is 12.6% rather than ~0% because
+it counts load/store and integer index instructions, not only the one FP32 add.
+
+### Copies over PCIe
+
+| Host memory | H2D (A + B, 537 MB) | D2H (C, 268 MB) | Copies ÷ kernel |
+| --- | --- | --- | --- |
+| Pageable (`malloc`) | 41–62 ms, 8.6–13.1 GB/s | 27–59 ms, 4.6–10.0 GB/s | 57–62× |
+| Pinned (`cudaMallocHost`) | 21.3 ms, 25.2 GB/s | 10.2 ms, 26.3 GB/s | ~20× |
+
+Pinned copies hit the PCIe 4.0 × 16 practical limit (~25 GB/s: 16 lanes × 1.97 GB/s
+= 31.5 GB/s theoretical, minus protocol overhead) and are identical run to run.
+Pageable copies go through the driver's pinned staging buffer (a CPU (central
+processing unit) copy, then the DMA (direct memory access) transfer), are 2–5×
+slower, and vary a lot between runs.
+
+**Hypothesis tested and ruled out:** an early pageable run had D2H 3× slower than H2D.
+I guessed first-touch page faults on the never-written `h_C`. Pre-touching `h_C` with
+`memset` changed nothing (4.7 → 4.6 GB/s), and later runs showed the asymmetry itself
+was run-to-run noise.
+
+## Limiting resource
+
+**DRAM bandwidth.** Every element needs 12 bytes of memory traffic for one FLOP, and the
+kernel keeps DRAM ~92% busy. It cannot move fewer than 805 MB, so the only way to be
+faster is to not make the trip at all: fuse this add into the kernel that produces A or
+consumes C.
+
+## Correctness
+
+- Every element compared exactly against the CPU result (a single FP32 add is
+  bit-identical on CPU and GPU): **0 mismatches** of 67,108,864.
+- `compute-sanitizer --tool memcheck`: **0 errors**.
+- **Not yet tested:** a size that isn't a multiple of 256. N = 2²⁶ divides evenly,
+  so the `i < N` guard is never exercised by these runs.
+
+## What I learned
+
+- **More threads help only until the GPU hits its real limit.** Going from one thread to
+  one block to blocks on all 72 SMs made the kernel much faster, but for vector add the
+  real limit is memory bandwidth, not compute. Once all SMs were busy, the math units
+  still sat ~87% idle, waiting for data.
+- **The prediction method works.** Bytes moved ÷ bandwidth gave an ideal time of 1.34 ms;
+  the measured 1.61 ms is 83% of that. Counting bytes and FLOPs before writing code tells
+  you what the kernel is limited by.
+- **The CUDA basics:** separate CPU and GPU memory (`cudaMalloc`, `cudaMemcpy`, the
+  destination comes first), CUDA events for timing GPU work, and warm-up launches,
+  because the first launches are slower while clocks ramp up and one-off setup happens.
+- **Failures can be silent.** A launch with 2048 threads per block (the limit is 1024)
+  printed nothing and returned garbage until I added `cudaGetLastError()`. Error checking
+  and a correctness check catch different failures, so every kernel needs both.
+- **Moving data to the GPU costs more than the work on it.** The copies took 20–60× longer
+  than the kernel. Pinned memory (`cudaMallocHost`) made them 2–5× faster and steady at
+  the PCIe limit; `malloc` memory was slow and varied a lot between runs.
+- **The spec is not reachable.** 600 GB/s is the spec, but the memory can realistically
+  sustain about 545 GB/s, so 83% of spec is really about 92% of what is possible.
+- **One measurement proves nothing.** A slow D2H copy I tried to explain turned out to be
+  run-to-run noise, and a fast 1.43 ms run turned out to be a different card.
+- **Still getting comfortable with** unit conversions in predictions (bytes → GB,
+  ms → s, GB/s vs TFLOP/s). They get easier each time I do them.
