@@ -37,6 +37,11 @@ def remote(name: str, source: str, mode: str, args: str) -> bytes | None:
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / f"{name}.cu").write_text(source)
 
+    # Which physical GPU did this run land on? Modal may hand out a different card
+    # each run, and two "A10"s can differ by ~10%, so every result records its GPU.
+    sh("nvidia-smi --query-gpu=name,uuid,clocks.max.sm,clocks.max.mem,temperature.gpu "
+       "--format=csv,noheader")
+
     # -lineinfo lets ncu map metrics back to source lines; it does not slow the code.
     if sh(f"nvcc -O3 -arch=sm_86 -lineinfo -Xptxas -v {name}.cu -o {name}") != 0:
         return None
