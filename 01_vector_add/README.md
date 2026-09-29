@@ -118,25 +118,9 @@ consumes C.
 
 ## What I learned
 
-- **More threads help only until the GPU hits its real limit.** Going from one thread to
-  one block to blocks on all 72 SMs made the kernel much faster, but for vector add the
-  real limit is memory bandwidth, not compute. Once all SMs were busy, the math units
-  still sat ~87% idle, waiting for data.
-- **The prediction method works.** Bytes moved ÷ bandwidth gave an ideal time of 1.34 ms;
-  the measured 1.61 ms is 83% of that. Counting bytes and FLOPs before writing code tells
-  you what the kernel is limited by.
-- **The CUDA basics:** separate CPU and GPU memory (`cudaMalloc`, `cudaMemcpy`, the
-  destination comes first), CUDA events for timing GPU work, and warm-up launches,
-  because the first launches are slower while clocks ramp up and one-off setup happens.
-- **Failures can be silent.** A launch with 2048 threads per block (the limit is 1024)
-  printed nothing and returned garbage until I added `cudaGetLastError()`. Error checking
-  and a correctness check catch different failures, so every kernel needs both.
-- **Moving data to the GPU costs more than the work on it.** The copies took 20–60× longer
-  than the kernel. Pinned memory (`cudaMallocHost`) made them 2–5× faster and steady at
-  the PCIe limit; `malloc` memory was slow and varied a lot between runs.
-- **The spec is not reachable.** 600 GB/s is the spec, but the memory can realistically
-  sustain about 545 GB/s, so 83% of spec is really about 92% of what is possible.
-- **One measurement proves nothing.** A slow D2H copy I tried to explain turned out to be
-  run-to-run noise, and a fast 1.43 ms run turned out to be a different card.
-- **Still getting comfortable with** unit conversions in predictions (bytes → GB,
-  ms → s, GB/s vs TFLOP/s). They get easier each time I do them.
+- How to increase the compute power of GPUs: add threads, blocks and grids to increase the compute speed.
+- Multiple CUDA commands.
+- How data travels between the GPU and the CPU, and how the GPU processes it in parallel.
+- The latency of copying from the CPU.
+- Warming up GPUs before timing.
+- Although I am confused while calculating some predictions and numbers, I am sure I will slowly get used to it.

@@ -5,10 +5,13 @@
 #   modal run tools/run.py --file path/to/kernel.cu --mode sanitize
 #   modal run tools/run.py --file path/to/kernel.cu --mode nsys
 #   modal run tools/run.py --file path/to/kernel.cu --args "1048576"
+#   modal run tools/run.py --file path/to/kernel.cu --mode ncu --skip 3 --count 1
 #
 # Modes:
 #   run       compile and run
 #   ncu       Nsight Compute: why is this kernel slow? Saves profiles/<name>.ncu-rep
+#             Profiles --count launches (default 1) after skipping --skip (default 0),
+#             e.g. --skip 3 to step over 3 warm-up launches.
 #   nsys      Nsight Systems: where did the time go? Saves profiles/<name>.nsys-rep
 #   sanitize  compute-sanitizer memcheck: out-of-bounds and misaligned accesses
 #
@@ -33,7 +36,7 @@ def sh(cmd: str) -> int:
 
 
 @app.function(gpu="A10", timeout=900)
-def remote(name: str, source: str, mode: str, args: str) -> bytes | None:
+def remote(name: str, source: str, mode: str, args: str, skip: int, count: int) -> bytes | None:
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / f"{name}.cu").write_text(source)
 
@@ -54,7 +57,8 @@ def remote(name: str, source: str, mode: str, args: str) -> bytes | None:
         return None
     if mode == "ncu":
         # Modal does not allow ncu to lock GPU clocks.
-        sh(f"ncu --clock-control none --set full -o {name} -f ./{name} {args}")
+        sh(f"ncu --clock-control none --set full --launch-skip {skip} --launch-count {count} "
+           f"-o {name} -f ./{name} {args}")
         sh(f"ncu --import {name}.ncu-rep --page details --section SpeedOfLight")
         report = WORK / f"{name}.ncu-rep"
     elif mode == "nsys":
@@ -69,9 +73,9 @@ def remote(name: str, source: str, mode: str, args: str) -> bytes | None:
 
 
 @app.local_entrypoint()
-def main(file: str, mode: str = "run", args: str = ""):
+def main(file: str, mode: str = "run", args: str = "", skip: int = 0, count: int = 1):
     path = Path(file)
-    report = remote.remote(path.stem, path.read_text(), mode, args)
+    report = remote.remote(path.stem, path.read_text(), mode, args, skip, count)
     if report:
         out = path.parent / "profiles" / (f"{path.stem}.ncu-rep" if mode == "ncu" else f"{path.stem}.nsys-rep")
         out.parent.mkdir(exist_ok=True)
