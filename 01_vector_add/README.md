@@ -113,8 +113,16 @@ consumes C.
 - Every element compared exactly against the CPU result (a single FP32 add is
   bit-identical on CPU and GPU): **0 mismatches** of 67,108,864.
 - `compute-sanitizer --tool memcheck`: **0 errors**.
-- **Not yet tested:** a size that isn't a multiple of 256. N = 2²⁶ divides evenly,
-  so the `i < N` guard is never exercised by these runs.
+- **Awkward size, N = 2²⁶ + 3 = 67,108,867:** 262,145 blocks × 256 = 67,109,120 threads,
+  so the last block has 3 threads with work and **253 surplus threads**. With the `i < N`
+  guard: 0 mismatches and 0 sanitizer errors. N = 2²⁶ alone divides evenly by 256, so it
+  never exercises the guard.
+- **Off-by-one check:** changing the guard to `i <= N` lets exactly one surplus thread
+  through, thread (3,0,0) of block 262,144, whose index is N. `compute-sanitizer` reports
+  an invalid 4-byte read at `vector_add.cu:29`, just past the end of `A`. Run normally,
+  the same broken kernel gives **0 mismatches, normal speed and no CUDA error**: the
+  correctness check never looks at element N, and the access lands in padding inside the
+  allocation. Only the awkward size plus the sanitizer together catch this bug.
 
 ## What I learned
 

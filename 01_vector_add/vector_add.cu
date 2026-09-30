@@ -31,7 +31,7 @@ __global__ void vector_add(const float* __restrict__ A, const float* __restrict_
 }
 
 int main(int argc, char** argv) {
-    const int N = 1 << 26;                        // 2^26 = 67,108,864 elements
+    const int N = (1 << 26);    // 2^26 = 67,108,864 elements
     const size_t bytes = N * sizeof(float);       // size of ONE array in bytes
 
     // Host memory kind, chosen on the command line:
