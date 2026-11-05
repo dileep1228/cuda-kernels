@@ -64,3 +64,4 @@ modal run tools/run.py --file path/to/kernel.cu --mode sanitize # compute-saniti
 | [Vector add](01_vector_add/) | ✅ | | 1.61 ms, ~500 GB/s, 83% of spec (92% DRAM busy) | DRAM bandwidth |
 | [Vector copy](02_vector_copy/) | ✅ | | 1.08 ms, ~495 GB/s, 83% of spec (92% DRAM busy) | DRAM bandwidth |
 | [SAXPY](03_saxpy/) | ✅ | | 1.63 ms, ~495 GB/s, 82.5% of spec (91% DRAM busy) | DRAM bandwidth |
+| [ReLU + square](04_relu_square/) | ✅ | | 1.08 ms each, ~495 GB/s, 82.7% of spec (91% DRAM busy) | DRAM bandwidth |
