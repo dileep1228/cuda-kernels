@@ -17,7 +17,7 @@ Every number in this repo comes from one GPU, so results are comparable.
 
 | | |
 | --- | --- |
-| GPU | NVIDIA A10 (Ampere, sm_86, 24 GB GDDR6, ECC on) |
+| GPU | NVIDIA A10 or A10G (Ampere, sm_86, 24 GB GDDR6, ECC on); Modal assigns either, see [hardware.md](hardware.md) | 
 | Host | [Modal](https://modal.com), container `nvidia/cuda:12.8.1-devel-ubuntu24.04` |
 | Toolkit | CUDA 12.8, driver 580 |
 | Profilers | Nsight Compute, Nsight Systems, compute-sanitizer |
@@ -29,6 +29,8 @@ Two platform notes that affect reproduction:
   slightly higher; benchmarks report medians.
 - **`nsys profile --trace=cuda,nvtx`** — the default trace set records no
   kernels in this environment.
+- **A10 or A10G** — `gpu="A10"` on Modal lands on either card: 72 or 80 SMs, same
+  600 GB/s memory. Every run prints which one it got. Details in [hardware.md](hardware.md).
 
 `tools/env_check.py` verifies the whole toolchain on a fresh GPU:
 

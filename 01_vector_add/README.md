@@ -62,9 +62,11 @@ Median of 20 runs, across repeated runs on Modal:
 
 The spread within a run is about 1%, so the median is stable. Seven of eight runs
 landed at 1.60–1.62 ms. One run measured 1.430 ms (563 GB/s, 94%) with no code
-change, most likely a different physical A10: Modal can assign a different card
-each run, which is why `tools/run.py` now prints the GPU's UUID (universally unique
-identifier) with every result.
+change, most likely a different physical card: Modal can assign a different card
+each run, which is why `tools/run.py` now prints the GPU's name and UUID (universally
+unique identifier) with every result. A later device query showed Modal's "A10" is
+sometimes an A10G (80 SMs instead of 72, same memory, see [hardware.md](../hardware.md)),
+so that run may have been an A10G. Not confirmed: the name wasn't recorded then.
 
 ### Nsight Compute (Speed of Light section)
 
