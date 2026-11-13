@@ -8,9 +8,8 @@ build/
 __pycache__/
 .venv/
 
-# profiler: ncu reports are committed on purpose (they are the evidence);
-# nsys traces are large and regenerable
-*.nsys-rep
+# profiler: ncu and nsys reports are committed on purpose (they are the evidence);
+# the intermediate files nsys builds from them are not
 *.sqlite
 *.qdstrm
 

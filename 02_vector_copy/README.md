@@ -24,6 +24,7 @@ of 12 gives ⅔ of vector add's time (1.08 vs 1.61 ms).
 ```bash
 modal run tools/run.py --file 02_vector_copy/vector_copy.cu                                  # benchmark
 modal run tools/run.py --file 02_vector_copy/vector_copy.cu --mode ncu --skip 3 --count 1    # Nsight Compute
+modal run tools/run.py --file 02_vector_copy/vector_copy.cu --mode nsys                      # Nsight Systems timeline
 modal run tools/run.py --file 02_vector_copy/vector_copy.cu --mode sanitize                  # compute-sanitizer
 ```
 
@@ -89,6 +90,39 @@ runs ~80× slower (85–89 ms). Speed comes only from normal runs.
 
 H2D = host to device, D2H = device to host. As with vector add, moving the data over PCIe
 costs far more than the kernel itself, and pageable copies vary 2–3× from run to run.
+
+### Profile summary: the six numbers (A10, profiled with `--skip 3`)
+
+| | |
+| --- | --- |
+| Time (ncu Duration) | 1.08 ms |
+| Effective bandwidth | ~495 GB/s (benchmark) |
+| Memory (DRAM) throughput | 91.5% |
+| Compute (SM) throughput | 19.6% |
+| Registers per thread | 22 (allocated as 24) |
+| Occupancy, theoretical → achieved | 100% → 80.1% |
+
+**Occupancy limits** (blocks per SM allowed by each resource; the smallest wins):
+warps/threads **6**, registers 10 (22 → 24 registers × 256 threads = 6,144 per block), shared memory 8 (1 KB per block reserved by the driver), blocks 16 → **6 blocks × 8 warps = 48 of 48 warps**.
+
+**Roofline:** arithmetic intensity 0 FLOP/byte (no arithmetic), so it cannot be placed on a log-scale roofline at all. Far left of the A10's ridge point
+(52 FLOP/byte): memory-bound.
+
+Achieved occupancy sits ~20 points below theoretical because blocks finish and are replaced at different times (606 waves of blocks per SM). ncu's "Est. Speedup ~8%" hint for raising it does not apply here: DRAM is already ~91% busy, so more warps would only wait on the same memory.
+
+### Nsight Systems (whole program)
+
+| Kernel total | Copies total | Copies ÷ kernels |
+| --- | --- | --- |
+| 25.0 ms (23 launches × 1.09 ms) | 46.8 ms (1 H2D 20.6 ms + 1 D2H 26.3 ms) | 1.9× (A10G) |
+
+Predicted before the run from bytes ÷ bandwidth: 23 launches, 1 + 1 copies, ~1.08 ms per kernel, ~26.8 ms per
+copy. All matched; the H2D copy was faster than predicted because PCIe ran at 13 GB/s on that host.
+Report: [`profiles/vector_copy.nsys-rep`](profiles/vector_copy.nsys-rep).
+
+Compute (SM) throughput is ~20% with zero FLOPs because the metric counts every instruction the SM issues:
+address calculation, the load, the store, the loop increment, compare and branch (~6 instructions per element).
+
 
 ## Limiting resource
 

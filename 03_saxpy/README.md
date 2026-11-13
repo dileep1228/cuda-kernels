@@ -26,6 +26,7 @@ elements, because the two round differently. Using `std::fma` on the CPU gives 0
 ```bash
 modal run tools/run.py --file 03_saxpy/saxpy.cu                                  # benchmark
 modal run tools/run.py --file 03_saxpy/saxpy.cu --mode ncu --skip 3 --count 1    # Nsight Compute
+modal run tools/run.py --file 03_saxpy/saxpy.cu --mode nsys                      # Nsight Systems timeline
 modal run tools/run.py --file 03_saxpy/saxpy.cu --mode sanitize                  # compute-sanitizer
 ```
 
@@ -84,6 +85,46 @@ one `FADD`).
 | 41.0–67.2 ms, 8.0–13.1 GB/s | 25.8–26.7 ms, 10.1–10.4 GB/s | 41–58× |
 
 H2D = host to device, D2H = device to host.
+
+### Profile summary: the six numbers (A10, profiled with `--skip 3`)
+
+| | |
+| --- | --- |
+| Time (ncu Duration) | 1.62 ms |
+| Effective bandwidth | ~495 GB/s (benchmark) |
+| Memory (DRAM) throughput | 91.6% |
+| Compute (SM) throughput | 13.6% |
+| Registers per thread | 24 |
+| Occupancy, theoretical → achieved | 100% → 82.2% |
+
+**Occupancy limits** (blocks per SM allowed by each resource; the smallest wins):
+warps/threads **6**, registers 10 (24 registers × 256 threads = 6,144 per block), shared memory 8 (1 KB per block reserved by the driver), blocks 16 → **6 blocks × 8 warps = 48 of 48 warps**.
+
+**Roofline:** arithmetic intensity 2/12 = 1/6 ≈ 0.17 FLOP/byte, so ~83 GFLOP/s (0.17 × 495 GB/s), ~0.27% of the compute peak. It would need ~300× more arithmetic per byte to reach the ridge. Far left of the A10's ridge point
+(52 FLOP/byte): memory-bound.
+
+Achieved occupancy sits ~20 points below theoretical because blocks finish and are replaced at different times (606 waves of blocks per SM). ncu's "Est. Speedup ~8%" hint for raising it does not apply here: DRAM is already ~91% busy, so more warps would only wait on the same memory.
+
+### Nsight Systems (whole program)
+
+| Kernel total | Copies total | Copies ÷ kernels |
+| --- | --- | --- |
+| 38.9 ms (24 launches × 1.62 ms) | 98.3 ms (3 H2D 72.7 ms + 1 D2H 25.6 ms) | 2.5× |
+
+24 launches = 3 warm-up + 20 timed + 1 check; the third H2D copy is the reset of `y` before the check.
+In a program that runs the kernel once, the copies would cost ~60× the kernel.
+
+From the CUDA API (application programming interface) table:
+
+- **First `cudaMalloc` 137 ms, second 0.09 ms:** the first CUDA call pays for context creation.
+- **22 `cudaEventSynchronize` calls** (1 after H2D, 20 in the timing loop, 1 after D2H): the 20 in the loop wait
+  ~1.6 ms each for the kernel; the two after copies return in ~4 µs, because `cudaMemcpy` had already blocked
+  until the copy finished. Kernel launches return immediately; plain `cudaMemcpy` does not.
+- **`cudaLaunchKernel` median 3.4 µs:** 0.2% of this 1.6 ms kernel, but ~44% of the time for a 5 µs kernel,
+  which is why LLM decoding uses CUDA Graphs and kernel fusion.
+
+Report: [`profiles/saxpy.nsys-rep`](profiles/saxpy.nsys-rep).
+
 
 ## Limiting resource
 

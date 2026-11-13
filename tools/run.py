@@ -59,12 +59,12 @@ def remote(name: str, source: str, mode: str, args: str, skip: int, count: int) 
         # Modal does not allow ncu to lock GPU clocks.
         sh(f"ncu --clock-control none --set full --launch-skip {skip} --launch-count {count} "
            f"-o {name} -f ./{name} {args}")
-        sh(f"ncu --import {name}.ncu-rep --page details --section SpeedOfLight")
+        sh(f"ncu --import {name}.ncu-rep --page details --section SpeedOfLight --section LaunchStats --section Occupancy")
         report = WORK / f"{name}.ncu-rep"
     elif mode == "nsys":
         # The default trace set records no kernels here; ask for CUDA explicitly.
         sh(f"nsys profile --trace=cuda,nvtx -o {name} -f true ./{name} {args}")
-        sh(f"nsys stats --report cuda_gpu_kern_sum,cuda_api_sum {name}.nsys-rep")
+        sh(f"nsys stats --report cuda_gpu_kern_sum,cuda_gpu_mem_time_sum,cuda_api_sum {name}.nsys-rep")
         report = WORK / f"{name}.nsys-rep"
     else:
         raise ValueError(f"unknown mode {mode!r}: use run, ncu, nsys or sanitize")

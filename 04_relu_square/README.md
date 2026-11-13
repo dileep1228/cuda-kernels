@@ -24,6 +24,7 @@ multiply makes no measurable difference.
 modal run tools/run.py --file 04_relu_square/relu_square.cu                                   # benchmark both
 modal run tools/run.py --file 04_relu_square/relu_square.cu --mode ncu --skip 3 --count 1     # profile relu
 modal run tools/run.py --file 04_relu_square/relu_square.cu --mode ncu --skip 26 --count 1    # profile square
+modal run tools/run.py --file 04_relu_square/relu_square.cu --mode nsys                       # Nsight Systems timeline
 modal run tools/run.py --file 04_relu_square/relu_square.cu --mode sanitize                   # compute-sanitizer
 ```
 
@@ -79,6 +80,38 @@ Reports: [`profiles/relu.ncu-rep`](profiles/relu.ncu-rep), [`profiles/square.ncu
 **Measurement note:** while ncu is attached, every launch is slowed, not only the profiled
 one. In the square profiling run, ReLU's (unprofiled) median was 1.336 ms. Speed comes only
 from normal runs.
+
+### Profile summary: the six numbers (ReLU on A10 with `--skip 3`, square on A10G with `--skip 26`)
+
+| | |
+| --- | --- |
+| Time (ncu Duration) | ReLU 1.09 ms, square 1.09 ms |
+| Effective bandwidth | ~495 GB/s each (benchmark) |
+| Memory (DRAM) throughput | ReLU 91.2%, square 91.2% |
+| Compute (SM) throughput | ReLU 20.1%, square 17.6% |
+| Registers per thread | 28 each (allocated as 32) |
+| Occupancy, theoretical → achieved | ReLU 100% → 79.5%, square 100% → 78.9% |
+
+**Occupancy limits** (blocks per SM allowed by each resource; the smallest wins):
+warps/threads **6**, registers 8 (28 → 32 registers × 256 threads = 8,192 per block), shared memory 8 (1 KB per block reserved by the driver), blocks 16 → **6 blocks × 8 warps = 48 of 48 warps**.
+
+**Roofline:** arithmetic intensity ReLU 0 (a `max` is a comparison, not a FLOP), square 1/8 = 0.125 FLOP/byte, so square reaches ~62 GFLOP/s (0.125 × 495 GB/s). Far left of the A10's ridge point
+(52 FLOP/byte): memory-bound.
+
+Achieved occupancy sits ~20 points below theoretical because blocks finish and are replaced at different times (606 waves of blocks per SM). ncu's "Est. Speedup ~8%" hint for raising it does not apply here: DRAM is already ~91% busy, so more warps would only wait on the same memory.
+
+### Nsight Systems (whole program)
+
+| Kernel total | Copies total | Copies ÷ kernels |
+| --- | --- | --- |
+| 49.7 ms (46 launches × 1.08 ms) | 85.8 ms (1 H2D 32.4 ms + 2 D2H 53.4 ms) | 1.7× |
+
+`x` crosses PCIe once and both kernels read it from GPU memory, so two kernels share one H2D copy.
+Report: [`profiles/relu_square.nsys-rep`](profiles/relu_square.nsys-rep).
+
+**Fusion, worked out on paper:** ReLU then square moves 8 + 8 = 16 bytes for 1 FLOP (AI 1/16, ~2.16 ms).
+A fused `y = max(x,0)²` moves 8 bytes for the same 1 FLOP (AI 1/8, ~1.08 ms): half the bytes, half the time.
+
 
 ## Limiting resource
 

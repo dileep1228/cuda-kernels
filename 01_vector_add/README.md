@@ -22,6 +22,7 @@ PCIe (Peripheral Component Interconnect Express) costs **20–60× the kernel it
 modal run tools/run.py --file 01_vector_add/vector_add.cu                 # pageable host memory
 modal run tools/run.py --file 01_vector_add/vector_add.cu --args pinned   # pinned host memory
 modal run tools/run.py --file 01_vector_add/vector_add.cu --mode ncu      # Nsight Compute
+modal run tools/run.py --file 01_vector_add/vector_add.cu --mode nsys     # Nsight Systems timeline
 modal run tools/run.py --file 01_vector_add/vector_add.cu --mode sanitize # compute-sanitizer
 ```
 
@@ -102,6 +103,35 @@ slower, and vary a lot between runs.
 I guessed first-touch page faults on the never-written `h_C`. Pre-touching `h_C` with
 `memset` changed nothing (4.7 → 4.6 GB/s), and later runs showed the asymmetry itself
 was run-to-run noise.
+
+### Profile summary: the six numbers (A10, profiled with `--skip 3`)
+
+| | |
+| --- | --- |
+| Time (ncu Duration) | 1.62 ms |
+| Effective bandwidth | ~500 GB/s (benchmark) |
+| Memory (DRAM) throughput | 91.7% |
+| Compute (SM) throughput | 14.1% |
+| Registers per thread | 30 (allocated as 32) |
+| Occupancy, theoretical → achieved | 100% → 77.9% |
+
+**Occupancy limits** (blocks per SM allowed by each resource; the smallest wins):
+warps/threads **6**, registers 8 (30 → 32 registers × 256 threads = 8,192 per block), shared memory 8 (1 KB per block reserved by the driver), blocks 16 → **6 blocks × 8 warps = 48 of 48 warps**.
+
+**Roofline:** arithmetic intensity 1/12 ≈ 0.083 FLOP/byte, so ~41 GFLOP/s (0.083 × 495 GB/s), ~0.13% of the 31.2 TFLOP/s compute peak. Far left of the A10's ridge point
+(52 FLOP/byte): memory-bound.
+
+Achieved occupancy sits ~20 points below theoretical because blocks finish and are replaced at different times (606 waves of blocks per SM). ncu's "Est. Speedup ~8%" hint for raising it does not apply here: DRAM is already ~91% busy, so more warps would only wait on the same memory.
+
+### Nsight Systems (whole program)
+
+| Kernel total | Copies total | Copies ÷ kernels |
+| --- | --- | --- |
+| 36.8 ms (23 launches × 1.60 ms) | 89.5 ms (2 H2D 63.0 ms + 1 D2H 26.6 ms) | 2.4× |
+
+The first `cudaMalloc` took 151 ms: CUDA context creation, paid once by whichever CUDA call comes first.
+Report: [`profiles/vector_add.nsys-rep`](profiles/vector_add.nsys-rep).
+
 
 ## Limiting resource
 
