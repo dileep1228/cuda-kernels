@@ -60,6 +60,17 @@ def remote(name: str, source: str, mode: str, args: str, skip: int, count: int) 
         sh(f"ncu --clock-control none --set full --launch-skip {skip} --launch-count {count} "
            f"-o {name} -f ./{name} {args}")
         sh(f"ncu --import {name}.ncu-rep --page details --section SpeedOfLight --section LaunchStats --section Occupancy")
+        # Memory traffic counters (coalescing): how many requests, how many sectors, how many DRAM bytes.
+        #   l1tex__t_requests_..._ld   load instructions issued by warps (1 per warp per load)
+        #   l1tex__t_sectors_..._ld    32-byte sectors those loads needed
+        #   lts__t_sectors_..._read    sectors read from L2
+        #   dram__bytes_read / write   bytes actually moved to/from DRAM
+        sh(f"ncu --import {name}.ncu-rep --page raw --metrics "
+           "gpu__time_duration.sum,"
+           "l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum,"
+           "l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum,"
+           "lts__t_sectors_srcunit_tex_op_read.sum,"
+           "dram__bytes_read.sum,dram__bytes_write.sum")
         report = WORK / f"{name}.ncu-rep"
     elif mode == "nsys":
         # The default trace set records no kernels here; ask for CUDA explicitly.

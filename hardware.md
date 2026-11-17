@@ -77,6 +77,34 @@ Each SM has fixed budgets. The one that runs out first sets the limit:
 
 6 blocks × 8 warps = 48 warps, the SM maximum (1,536 ÷ 32): **100% occupancy**.
 
+### Block size vs occupancy (24 registers per thread)
+
+Blocks that fit per SM for each limit. The smallest wins; round down, since a block fits whole or not at all.
+Every block also costs 1 KB of driver-reserved shared memory and one block slot, whatever its size.
+
+| Block size | Warps per block | Block slots (16) | Warps (48) | Registers (65,536) | Shared memory | Winner | Active warps | Theoretical occupancy |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 32 | 1 | 16 | 48 | 84 | 16 (16 KB config) | slots / shared memory | 16 | **33.3%** |
+| 256 | 8 | 16 | **6** | 10 | 8 (8 KB config) | warps | 48 | **100%** |
+| 1,024 | 32 | 16 | **1** | 2 | 8 | warps | 32 | **66.7%** |
+
+- 1,024-thread blocks: a second block would need 64 warps; the last 16 warp slots stay empty.
+- 32-thread blocks: per-block costs run out long before warps do. On paper (8 KB config) only 8 blocks
+  fit, giving 16.7%; the driver chose a 16 KB config instead, so 16 fit. Measure, don't assume.
+
+Measured with `stride.cu`, stride 1, A10 (ncu):
+
+| Block size | Achieved occupancy | DRAM throughput | Duration |
+| --- | --- | --- | --- |
+| 256 | 79.9% | 90.4% | 0.272 ms |
+| 32 | 24.3% | 63.7% | 0.399 ms (+47%) |
+
+Same bytes moved (~75 MB read), so the slowdown is idle DRAM time: too few warps to keep
+enough loads in flight (Little's Law: bandwidth = bytes in flight ÷ latency). At stride 8 the
+32-thread version matched the 256-thread one (1.17 ms), because each request asks for 32 sectors
+instead of 4, so fewer warps still keep the memory busy. Occupancy matters most when each warp
+has little in flight.
+
 ### L2 cache: 6 MB
 
 Small next to vector add's 805 MB of traffic (~130× larger), so that kernel gets no
