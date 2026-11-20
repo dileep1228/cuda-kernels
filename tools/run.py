@@ -70,6 +70,9 @@ def remote(name: str, source: str, mode: str, args: str, skip: int, count: int) 
            "l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum,"
            "l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum,"
            "lts__t_sectors_srcunit_tex_op_read.sum,"
+           "l1tex__t_requests_pipe_lsu_mem_global_op_st.sum,"
+           "l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum,"
+           "lts__t_sectors_srcunit_tex_op_write.sum,"
            "dram__bytes_read.sum,dram__bytes_write.sum")
         report = WORK / f"{name}.ncu-rep"
     elif mode == "nsys":
